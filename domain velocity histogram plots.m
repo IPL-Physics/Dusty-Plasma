@@ -1,3 +1,4 @@
+%Need to run domain and NHDS code first to get the Allma object
 DomVel=[];
 N_TIME_STEPS = 1428;
 
