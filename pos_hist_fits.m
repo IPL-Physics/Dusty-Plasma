@@ -1,0 +1,169 @@
+%% Equation fitting for data obtained from ImageJ particle tracking and @msdanalyzer diffusion analysis
+% Prior to running this code, you need to download and install @msdanalyser from here: https://tinevez.github.io/msdanalyzer/
+% @msdanalyzer imposes that the tracks you give to it are formatted in the following way: [ Ti Xi Yi ...]. So if we generate a track with 50 measurements in a 2D diffusion problem, we must generate a 50 x 3 double array per particle.
+% The input file for this code should be a cell, where each array is the [ Ti Xi Yi ] matrix for each particle trajectory. 
+% Use the code "tracks_from_ImageJ_data" to convert ImageJ data to tracks cell needed as input here. 
+% Import track data in the cell format required for analysis with
+% @msdanalyzer. 
+
+% Assuming you have imported 'tracks' data 
+N_TIME_STEPS = 1428; % This will be needed for plotting the histogram of velocities
+SPACE_UNITS = 'um'; % The units are needed to initiate the @msdanalyzer
+TIME_UNITS = 's';
+%Create the appropriate msd object to begin with
+ma = msdanalyzer(2, SPACE_UNITS, TIME_UNITS); %dimensionality and Specify units for the msdanalyzer
+ma = ma.addAll(tracks); % Add 'tracks' data 
+ma = ma.computeDrift('velocity');
+ma = ma.computeVCorr;
+ma = ma.computeMSD;% Compute MSD for each particle.
+ma.msd
+
+%This script uses the @msdanalyzer code to gather the calculated (x-x_0)^2
+%for every trajectory in each direction which gives an exponential or power
+%law fall tails of displacement information
+num_arrays = numel(ma.msd);
+msd_x = [];
+msd_y = [];
+
+for i = 1:num_arrays
+    % Extract the current array
+    current_array = ma.msd{i};
+    
+    % Find rows with time delays between 4 and 6
+    valid_rows = current_array(:,1) > 0 & current_array(:,1) < 3;
+    
+    % Extract the relevant rows
+    relevant_data = current_array(valid_rows, :);
+    
+    % Extract msdx and msdy
+    msdx = relevant_data(:, 2);
+    msdy = relevant_data(:, 3);
+    
+    % Append to msd_x and msd_y
+    msd_x = [msd_x; msdx];
+    msd_y = [msd_y; msdy];
+end
+% Remove NaN values
+MSDx = msd_x(~isnan(msd_x) & ~isinf(msd_x));
+MSDy = msd_y(~isnan(msd_y) & ~isinf(msd_y));
+
+%%
+
+% Plot histograms
+figure;
+subplot(2, 1, 1);
+histogram(MSDx);
+title('Histogram of MSD for x');
+xlabel('MSD');
+ylabel('Frequency');
+
+subplot(2, 1, 2);
+histogram(MSDy);
+title('Histogram of MSD for y');
+xlabel('MSD');
+ylabel('Frequency');
+%%
+[Nx,Xx] = hist(MSDx,(700)); 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Maxwellian distribution
+modelFun = @(p,x) p(1).*exp(-1*(((x-p(3)))./p(2))); % exponential
+
+% exponential for msdx
+e_xstart = [60000,2000,400]; % Starting values are our best initial guess for the free parametrrs p(1), p(2), etc.
+e_x = nlinfit(Xx,Nx,modelFun,e_xstart);
+e_x_eval = modelFun(real(e_x),Xx);
+
+% q-Gaussian distribution
+modelFun = @(p,x)  abs(p(1)).*(1./((1+((((x-p(4))))./(((p(3)-1)^(-1)).*(abs(p(2)))))).^(1/(p(3)-1))));
+
+% Fit for x
+Q_xstart = [2500,0,2,0];
+Q_x = nlinfit(Xx,Nx,modelFun,Q_xstart);
+Q_x_eval = modelFun(real(Q_x),Xx);
+
+
+% Define function
+fun = @(x, p) abs(p(1)).*(1./((1+((((x-p(4))))./(((p(3)-1)^(-1)).*(abs(p(2)))))).^(1/(p(3)-1))));
+
+% Choose values for p(1), p(2), p(3), and p(4)
+p = [1480, 17000, 1.28, 0];
+
+% Generate x values
+x = linspace(0, 500000, 1000);
+
+% Calculate y values
+y = fun(x, p);
+
+figure
+bar(Xx,Nx)
+box off
+hold on
+plot(Xx,e_x_eval,'k','LineWidth',2); % Fit exponential to the histogram
+plot(Xx,Q_x_eval,'m','Linewidth',2); %Fit Q Gaussian (Best fit)
+%plot(x,y,'g','Linewidth',2); %Fit Q Gaussian (Best fit)
+plot(0,0,'w'); %this is to create extra legend space
+title('70Pa 0.7mA (x(\tau=3)-x_0)^2') % Change the title to reflect the parameters of the dataset used
+xlabel([ 'MSD_x' ])
+ylabel('Counts')
+ylim([0,70000]);
+xlim([0,10000]);
+set(gca,'FontSize',18); % Set axis fornsize to 18
+legend({['msd_{x}'], ['D=' num2str(e_x(2))], ['q=' num2str(Q_x(3)) ' Dq=' num2str(abs(Q_x(2)), '%.3f')]}, 'Location', 'northeast');
+
+%%
+
+[Ny,Yx] = hist(MSDy,(700)); 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Maxwellian distribution
+modelFun = @(p,x) p(1).*exp(-1*(((x-p(3)))./p(2))); % exponential
+
+% exponential for msdx
+e_ystart = [2000,400,20]; % Starting values are our best initial guess for the free parametrrs p(1), p(2), etc.
+e_y = nlinfit(Yx,Ny,modelFun,e_ystart);
+e_y_eval = modelFun(real(e_y),Yx);
+
+% q-Gaussian distribution
+modelFun = @(p,x)  abs(p(1)).*(1./((1+((((x-p(2))))./(((p(4)-1)^(-1)).*((p(3)))))).^(1/(p(4)-1))));
+
+% Fit for y
+Q_ystart = [20000,10,500,1.1];
+Q_y = nlinfit(Yx,Ny,modelFun,Q_ystart);
+Q_y_eval = modelFun(real(Q_y),Yx);
+
+% Define function
+fun = @(x, p) abs(p(1)).*(1./((1+((((x-p(4))))./(((p(3)-1)^(-1)).*(abs(p(2)))))).^(1/(p(3)-1))));
+
+% Choose values for p(1), p(2), p(3), and p(4)
+p = [23340, 580, 1.108, 458];
+
+% Generate x values
+x = linspace(0, 500000, 1000);
+
+% Calculate y values
+y = fun(Yx, p);
+
+% Bi-q-Gaussian distribution
+modelFun = @(p,x)  abs(p(1)).*(1./((1+((((x-p(2))))./(((p(4)-1)^(-1)).*(abs(p(3)))))).^(1/(p(4)-1)))) + abs(p(1)).*(1./((1+((((x-p(2))))./(((p(5)-1)^(-1)).*(abs(p(6)))))).^(1/(p(5)-1))));
+
+% Fit for x
+Bi_Q_ystart = [25000,1,600,1.5,1.5,300];
+Bi_Q_y = nlinfit(Yx,Ny,modelFun,Bi_Q_ystart);
+Bi_Q_y_eval = modelFun(real(Bi_Q_y),Yx);
+
+figure
+bar(Yx,Ny)
+box off
+hold on
+plot(Yx,e_y_eval,'k','LineWidth',2); % Fit exponential to the histogram
+plot(Yx,Q_y_eval,'m','Linewidth',2); %Fit Q Gaussian (Best fit)
+plot(Yx,Bi_Q_y_eval,'g','Linewidth',2); %Fit Q Gaussian (Best fit)
+title('70Pa 0.7mA NHDS (y(\tau=3)-y_0)^2') % Change the title to reflect the parameters of the dataset used
+ylim([0,30000]);
+xlim([0,8000]);
+xlabel([ 'MSD_y' ])
+ylabel('Counts')
+set(gca,'FontSize',18); % Set axis fornsize to 18
+plot(0,0,'w'); %this is to create extra legend space
+legend({['msd_{y} y_0=' num2str(e_y(3),'%.3f')], ['D=' num2str(e_y(2),'%.3f')], ['q=' num2str(Q_y(4),'%.3f') ' Dq=' num2str(Q_y(3),'%.3f')],['q1=' num2str(real(Bi_Q_y(4)),'%.3f') ' q2=' num2str(real(Bi_Q_y(5)),'%.3f')],['Dq1=' num2str(real(Bi_Q_y(3)),'%.3f') ' Dq2=' num2str(real(Bi_Q_y(6)),'%.3f')]}, 'Location', 'northeast','AutoUpdate','on');

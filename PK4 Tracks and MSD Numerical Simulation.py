@@ -93,30 +93,52 @@ plt.show()
 
 
 #%%
-# Calculate Mean Squared Displacement as function of time
-max_time = int(T / dt)
-msd_values = np.zeros(max_time)
-squared_displacements = []
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+n_particles = len(x_tracks)
+num_steps = len(x_tracks[0])
+max_lag = num_steps - 1  # Full lag range
+
+msd_vs_lag = np.zeros(max_lag)
+counts = np.zeros(max_lag)
 
 for j in range(n_particles):
-    x0, y0 = x_tracks[j][0], y_tracks[j][0]
-    x_t, y_t = x_tracks[j], y_tracks[j]
-    squared_displacement = [(x - x0)**2 + (y - y0)**2 for x, y in zip(x_t, y_t)]
-    squared_displacements.append(squared_displacement)
+    x = np.array(x_tracks[j])
+    y = np.array(y_tracks[j])
+    for lag in range(1, max_lag):
+        dx2 = (x[lag:] - x[:-lag])**2
+        dy2 = (y[lag:] - y[:-lag])**2
+        displacements = dx2 + dy2
+        msd_vs_lag[lag] += np.sum(displacements)
+        counts[lag] += len(displacements)
 
+valid = counts > 0
+msd_vs_lag[valid] /= counts[valid]
+time_lags = np.arange(1, max_lag)[valid[1:]]
 
-# Create a time array for plotting
-time_steps = np.arange(800)
-average_msd = np.mean(squared_displacements, axis=0)
+# --- Power-law fit ---
+def power_law(t, alpha, C):
+    return C * t**alpha
 
-# Plot the Mean Squared Displacement (MSD) as a function of time displacement
+popt, _ = curve_fit(power_law, time_lags, msd_vs_lag[1:][valid[1:]])
+alpha, C = popt
+print(f"Estimated α (diffusion exponent): {alpha:.2f}")
+
+# --- Plot ---
 plt.figure()
-plt.plot(time_steps, average_msd, lw=2)
-
-plt.xlabel('Time Displacement')
+plt.plot(np.arange(max_lag)[valid], msd_vs_lag[valid], label='MSD', lw=2)
+plt.plot(time_lags, power_law(time_lags, *popt), 'r--', label=f'Fit: $t^{{{alpha:.2f}}}$')
+plt.xlabel('Time Lag')
 plt.ylabel('Mean Squared Displacement (MSD)')
-plt.title('Mean Squared Displacement vs. Time Displacement')
+plt.title('Mean Squared Displacement vs. Time Lag')
+plt.legend()
+plt.grid(True)
 plt.show()
+
+
+
 
 #%%
 import pandas as pd
